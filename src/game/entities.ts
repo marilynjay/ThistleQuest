@@ -1,14 +1,19 @@
 import type { Element } from './elements';
 import type { EnemyDef } from './enemyDefs';
-import type { Facing } from './art';
 
 export interface Player {
   x: number;
   y: number;
+  z: number;
   r: number;
   hp: number;
   maxHp: number;
-  facing: Facing;
+  faceAngle: number;
+  walkPhase: number;
+  speed: number; // 0..1, smoothed
+  velX: number;
+  velY: number;
+  attackT: number; // seconds since the last attack started
   aimX: number;
   aimY: number;
   moving: boolean;
@@ -48,7 +53,9 @@ export interface Enemy {
   dirX: number;
   dirY: number;
   flash: number;
-  faceLeft: boolean;
+  faceAngle: number;
+  moving: boolean;
+  windupDur: number;
   animT: number;
   contactCd: number;
   shootCd: number;

@@ -4,7 +4,7 @@ export type Ground =
   | 'void' | 'grass' | 'flowers' | 'path' | 'water' | 'bridge' | 'marsh' | 'ash' | 'ashpath'
   | 'stone' | 'rug' | 'stairs' | 'door' | 'exit';
 
-export type Solid = 'tree' | 'rock' | 'towerwall' | 'wall' | 'bookshelf' | 'debris' | 'podium' | 'signpost';
+export type Solid = 'tree' | 'rock' | 'towerwall' | 'wall' | 'furniture' | 'signpost';
 
 export type SpawnKind = 'w' | 'b' | 'i' | 'e';
 
@@ -35,7 +35,7 @@ const GROUND: Record<string, Ground> = {
 };
 
 const SOLID: Record<string, Solid> = {
-  T: 'tree', R: 'rock', W: 'towerwall', '#': 'wall', B: 'bookshelf', x: 'debris', P: 'podium', s: 'signpost',
+  T: 'tree', R: 'rock', W: 'towerwall', '#': 'wall', k: 'furniture', s: 'signpost',
 };
 
 const PICKUP: Record<string, string> = { '1': 'emberbrand', '2': 'rimeshard', '3': 'thunderpike', r: 'whetstone', a: 'acorn' };
@@ -56,7 +56,7 @@ export function parseMap(id: MapId, name: string, rows: string[], floor: Ground)
       if (ch in PICKUP) info.pickups.push({ x, y, item: PICKUP[ch] });
       if ('wbie'.includes(ch)) info.spawns.push({ x, y, kind: ch as SpawnKind });
       if (ch === 's') info.signs.push({ x, y });
-      if (ch === 'P') info.spawnPoint = { x: x + 0.5, y: y + 1.6 };
+      if (ch === 'P') info.spawnPoint = { x: x + 0.5, y: y + 0.5 };
       if (ch === 'X') info.exits.push({ x, y });
       // Walls in the valley stand on grass; solids inside the tower stand on stone.
       if (ch in SOLID && ch !== 'W') ground[i] = floor;

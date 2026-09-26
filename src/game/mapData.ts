@@ -7,29 +7,31 @@
 //             h  scorched ash (burns you)     H  ash road (also burns)
 //             _  stone floor  o  rug          S  stairs down   D  tower door
 //             X  path out of the valley       (space) nothing / open sky
-//   Solids:   T  tree   R  rock   W  tower wall (valley)   #  tower wall (inside)
-//             B  bookshelf   x  smashed furniture   P  the podium   s  signpost
+//   Solids:   T  tree   R  rock   W  tower wall (valley)   #  wall (inside the tower)
+//             k  furniture (drawn by the tower's prop list)   s  signpost
+//   Markers:  P  the dais where Thistle respawns (walkable)
 //   Pickups:  1  Emberbrand   2  Rimeshard Wand   3  Thunderpike
 //             r  Whetstone of Ages   a  Heartroot Acorn
 //   Spawns:   w  Frost Wisps   b  Boulder Beetles   i  Cinder Imps   e  random mix
 //             (each spawn marker rolls a fresh encounter every run)
 
+// The high study at the top of the Wizard's tower. The back walls (row 0 and column 0) stand tall;
+// the front walls (row 13 and column 13) are cut away so you can see in. S is the arched doorway down.
 export const TOWER_TOP = [
-  '     #####     ',
-  '   ##_____##   ',
-  '  #B_______B#  ',
-  ' #___________# ',
-  ' #___________# ',
-  '#_____ooo_____#',
-  '#____ooooo____#',
-  '#____ooPoo____#',
-  '#____ooooo____#',
-  '#_____ooo_____#',
-  ' #_x_________# ',
-  ' #________x__# ',
-  '  #______SS_#  ',
-  '   ##_____##   ',
-  '     #####     ',
+  '##############',
+  '#kkk___kkkkkk#',
+  '#____________#',
+  '#k___________#',
+  '#k___________#',
+  '#____________#',
+  '#_____P______#',
+  '#____________#',
+  '#k_______k___#',
+  '#k_____kkk_k_#',
+  '#_________k__#',
+  '#k___________#',
+  '#____kk______#',
+  '###SS#########',
 ];
 
 export const VALLEY = [

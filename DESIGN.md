@@ -7,6 +7,13 @@ Isometric pixel-art action roguelite, with combat that feels like Hades or Dead 
 
 **Goal:** defeat the raiders and rescue the Wizard. The Wizard, impressed, retires and leaves Thistle the tower.
 
+## Art direction
+- **Detailed, painterly 2D** (not pixel art). Reference: the original pre-rendered study, character turnaround and thorn-framed inventory mockups.
+- Palette: moody interiors (dark stone, mahogany, crimson rugs with gold borders, candle and moonlight); lush, warm exteriors.
+- UI language: green wood panels with bronze-rimmed slots, gripped by thorny olive vines. Serif type (Cinzel for titles, Alegreya for text).
+- Thistle: long green hair, green eyes, pointed ears, cream laced vest, dark trousers, brown boots and bracers, a rag tucked in his belt.
+- Everything is currently procedural; if we later bring in hand-painted or pre-rendered assets, the scene and sprite system can take images in place of painter functions.
+
 ## Pillars
 1. **Skill first, types second.** A wrong-type weapon still works; the right one is just much better (2× damage plus stagger).
 2. **Nothing is locked, just dangerous.** Paths are open from the start. Players learn which roads are survivable and work up to the harder ones.
@@ -65,6 +72,6 @@ Isometric pixel-art action roguelite, with combat that feels like Hades or Dead 
 ## Roadmap
 1. ~~Vertical slice: tower, valley, combat, types, relics, respawn, soft-gating demos.~~ Done.
 2. First real region past the valley (probably the Old Mine as the "easy" road) with a mini-boss.
-3. Armory in the tower, plus traversal relics.
+3. ~~Armory screen~~ (done: Tab). Next: traversal relics.
 4. Companion system, starting with one creature.
 5. Sound and music, the intro cutscene, and controller support.

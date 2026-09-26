@@ -1,17 +1,21 @@
-import { angleDiff, norm, screenToWorld, worldToScreen } from '../engine/iso';
+import { angleDiff, norm, project, screenToWorld } from '../engine/iso';
 import type { Input } from '../engine/input';
-import { buildArt, type Art, type Facing } from './art';
+import { inventoryHit } from '../paint/inventory';
+import { DAIS_TIERS } from '../paint/props';
 import { ELEMENT_INFO, effectiveness, multiplier, weaknessesOf, type Element } from './elements';
 import { ENEMIES, type EnemyDef } from './enemyDefs';
 import type { Enemy, Floater, Herb, Particle, Pickup, Player, Projectile, Swing, Toast } from './entities';
 import { RELICS, relicStats } from './relics';
 import { loadSave, writeSave, clearSave, freshSave, type SaveData } from './save';
-import { renderGround, type GroundCache } from './tiles';
 import { LOADOUT_SLOTS, WEAPONS, type WeaponDef } from './weapons';
 import { buildMaps, collides, groundAt, isBlocked, nearestRoad, solidAt, type MapId, type MapInfo } from './world';
 
-export const VIEW_W = 480;
-export const VIEW_H = 270;
+export const VIEW_W = 1280;
+export const VIEW_H = 720;
+/** Camera zoom applied to the world (not the UI). */
+export const ZOOM = 1.25;
+/** How far above Thistle's feet the camera centers, in screen px. */
+const CAM_LIFT = 50;
 
 const PLAYER_SPEED = 4.2;
 const DODGE_SPEED = 13;
@@ -29,10 +33,9 @@ interface Fade {
 }
 
 export class Game {
-  art: Art = buildArt();
   maps = buildMaps();
-  ground: Record<MapId, GroundCache>;
   save: SaveData = loadSave();
+  inventoryOpen = false;
 
   state: GameState = 'intro';
   mapId: MapId = 'tower';
@@ -62,8 +65,7 @@ export class Game {
   private nextEnemyId = 1;
   private hints = new Set<string>();
 
-  constructor(private input: Input) {
-    this.ground = { tower: renderGround(this.maps.tower), valley: renderGround(this.maps.valley) };
+  constructor(readonly input: Input) {
     this.player = this.newPlayer();
     this.placePlayer(this.maps.tower.spawnPoint.x, this.maps.tower.spawnPoint.y);
     this.snapCamera();
@@ -78,7 +80,19 @@ export class Game {
   }
 
   get loadout(): WeaponDef[] {
-    return this.save.weapons.slice(0, LOADOUT_SLOTS).map((id) => WEAPONS[id]).filter(Boolean);
+    return this.save.loadout.slice(0, LOADOUT_SLOTS).map((id) => WEAPONS[id]).filter(Boolean);
+  }
+
+  /** Add or remove a weapon from the four quick slots (used by the Armory screen). */
+  toggleLoadout(id: string) {
+    const l = this.save.loadout;
+    const i = l.indexOf(id);
+    if (i >= 0) {
+      if (l.length > 1) l.splice(i, 1);
+    } else if (l.length < LOADOUT_SLOTS) l.push(id);
+    else l[this.player.slot] = id;
+    this.player.slot = Math.min(this.player.slot, l.length - 1);
+    writeSave(this.save);
   }
 
   get weapon(): WeaponDef {
@@ -96,7 +110,8 @@ export class Game {
   private newPlayer(): Player {
     const maxHp = this.stats.maxHp;
     return {
-      x: 0, y: 0, r: 0.26, hp: maxHp, maxHp, facing: 'down', aimX: 1, aimY: 1, moving: false, animT: 0,
+      x: 0, y: 0, z: 0, r: 0.26, hp: maxHp, maxHp, faceAngle: Math.PI / 4, walkPhase: 0, speed: 0, velX: 0, velY: 0,
+      attackT: 99, aimX: 1, aimY: 1, moving: false, animT: 0,
       attackCd: 0, attackFacingT: 0, dodgeT: 0, dodgeCd: 0, dodgeX: 0, dodgeY: 0, iframes: 0,
       lungeT: 0, lungeX: 0, lungeY: 0, lungeHit: new Set(), slot: 0, flash: 0, hazardTick: 0, kbX: 0, kbY: 0,
     };
@@ -110,9 +125,9 @@ export class Game {
   }
 
   private snapCamera() {
-    const s = worldToScreen(this.player.x, this.player.y);
+    const s = project(this.player.x, this.player.y, this.player.z);
     this.camX = s.x;
-    this.camY = s.y - 10;
+    this.camY = s.y - CAM_LIFT;
   }
 
   // -------------------------------------------------------------------------
@@ -131,14 +146,24 @@ export class Game {
           writeSave(this.save);
           this.showHelp = true;
         }
-        this.toast("The Wizard's Tower", 'Rest by the podium to heal. The stairs lead down.', '#c9a24a', 4);
+        this.toast("The Wizard's Tower", 'Rest on the dais to heal. The arched door leads down.', '#c9a24a', 4);
       }
       this.updateToasts(dt);
       return;
     }
 
     if (input.wasPressed('h')) this.showHelp = !this.showHelp;
+    if ((input.wasPressed('tab') || input.wasPressed('i')) && this.state === 'play') this.inventoryOpen = !this.inventoryOpen;
+    if (input.wasPressed('escape')) this.inventoryOpen = false;
     this.handleResetKey();
+    if (this.inventoryOpen) {
+      if (input.mousePressed) {
+        const hit = inventoryHit(this, input.mouseX, input.mouseY);
+        if (hit?.kind === 'weapon') this.toggleLoadout(hit.id);
+      }
+      this.updateToasts(dt);
+      return;
+    }
 
     if (this.fade) {
       this.fade.t += dt;
@@ -267,17 +292,30 @@ export class Game {
     vy += p.kbY;
     p.kbX *= Math.pow(0.001, dt);
     p.kbY *= Math.pow(0.001, dt);
+    const prevX = p.x;
+    const prevY = p.y;
     this.moveBody(p, vx * dt, vy * dt, p.r);
 
     // Attack (hold to keep swinging)
     if ((input.mouseDown || input.isDown('j')) && p.attackCd <= 0 && p.dodgeT <= 0 && p.lungeT <= 0) this.attack();
 
-    // Facing
+    // Facing: turn smoothly toward the aim while fighting, otherwise toward where we walk
     const faceAim = p.attackFacingT > 0 || !p.moving;
     const fx = faceAim ? p.aimX : move.x;
     const fy = faceAim ? p.aimY : move.y;
-    p.facing = facingOf(fx, fy);
+    const target = Math.atan2(fy, fx);
+    let d = target - p.faceAngle;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    p.faceAngle += d * Math.min(1, dt * 14);
     p.animT = p.moving ? p.animT + dt : 0;
+    p.attackT += dt;
+    const actual = Math.hypot(p.x - prevX, p.y - prevY) / dt;
+    p.velX = (p.x - prevX) / dt;
+    p.velY = (p.y - prevY) / dt;
+    p.speed += (Math.min(1, actual / PLAYER_SPEED) - p.speed) * Math.min(1, dt * 12);
+    p.walkPhase += dt * Math.min(actual, PLAYER_SPEED * 1.2) * 2.6;
+    p.z += (this.floorHeight(p.x, p.y) - p.z) * Math.min(1, dt * 20);
 
     this.checkTiles(dt);
     this.checkInteract();
@@ -291,9 +329,18 @@ export class Game {
   }
 
   mouseWorld() {
-    const sx = this.input.mouseX - VIEW_W / 2 + this.camX;
-    const sy = this.input.mouseY - VIEW_H / 2 + this.camY + 10; // aim at the ground under the cursor
+    const sx = (this.input.mouseX - VIEW_W / 2) / ZOOM + this.camX;
+    const sy = (this.input.mouseY - VIEW_H / 2) / ZOOM + this.camY;
     return screenToWorld(sx, sy);
+  }
+
+  /** Height of the floor under a point (the dais steps up in the tower). */
+  floorHeight(x: number, y: number) {
+    if (this.mapId !== 'tower') return 0;
+    const c = this.maps.tower.spawnPoint;
+    let h = 0;
+    for (const [half, z] of DAIS_TIERS) if (Math.abs(x - c.x) < half && Math.abs(y - c.y) < half) h = z;
+    return h;
   }
 
   private moveBody(b: { x: number; y: number }, dx: number, dy: number, r: number) {
@@ -312,6 +359,7 @@ export class Game {
     const w = this.weapon;
     p.attackCd = w.cooldown;
     p.attackFacingT = 0.35;
+    p.attackT = 0;
     const color = ELEMENT_INFO[w.element].color;
     const angle = Math.atan2(p.aimY, p.aimX);
 
@@ -455,7 +503,7 @@ export class Game {
       });
     }
     if (g === 'door' && !this.fade) {
-      this.startFade(() => this.goTo('tower', 9.6, 11.2));
+      this.startFade(() => this.goTo('tower', 4.0, 12.35));
     }
     if (g === 'exit') {
       const road = nearestRoad(p.x, p.y);
@@ -487,7 +535,7 @@ export class Game {
     // Resting at the podium heals.
     if (this.mapId === 'tower') {
       const pod = this.maps.tower.spawnPoint;
-      if (Math.hypot(p.x - pod.x, p.y - (pod.y - 1.1)) < 2.4 && p.hp < p.maxHp) {
+      if (Math.hypot(p.x - pod.x, p.y - pod.y) < 1.7 && p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + 40 * dt);
         if (Math.random() < 0.3) this.spark(p.x, p.y, '#c9a0ff', 1, 0.8);
       }
@@ -522,11 +570,13 @@ export class Game {
     if (pk.kind === 'weapon') {
       const w = WEAPONS[pk.item];
       this.save.weapons.push(w.id);
-      const idx = this.save.weapons.indexOf(w.id);
-      if (idx < LOADOUT_SLOTS) this.player.slot = idx;
+      if (this.save.loadout.length < LOADOUT_SLOTS) {
+        this.save.loadout.push(w.id);
+        this.player.slot = this.save.loadout.length - 1;
+      }
       const el = ELEMENT_INFO[w.element];
       this.toast(`${w.name} - ${el.name}`, w.blurb, el.color, 5);
-      this.hint('switch', 'New weapon!', 'Press 1-4 or scroll the mouse wheel to switch weapons.', '#f4eedd');
+      this.hint('switch', 'New weapon!', 'Press 1-4 or scroll the mouse wheel to switch. Tab opens the Armory.', '#f4eedd');
     } else {
       const r = RELICS[pk.item];
       this.save.relics.push(r.id);
@@ -593,7 +643,7 @@ export class Game {
   private makeEnemy(def: EnemyDef, x: number, y: number, group: number): Enemy {
     return {
       id: this.nextEnemyId++, def, x, y, homeX: x, homeY: y, hp: def.hp, state: 'idle', t: Math.random() * 2,
-      kbX: 0, kbY: 0, dirX: 0, dirY: 0, flash: 0, faceLeft: Math.random() < 0.5, animT: Math.random() * 10,
+      kbX: 0, kbY: 0, dirX: 0, dirY: 0, flash: 0, faceAngle: Math.random() * Math.PI * 2, moving: false, windupDur: 1, animT: Math.random() * 10,
       contactCd: 0, shootCd: 1 + Math.random() * 2, aggro: false, group, lastHitT: -99,
     };
   }
@@ -670,6 +720,7 @@ export class Game {
           if (dist < 4.5 && alive) {
             e.state = 'windup';
             e.t = 0.7;
+            e.windupDur = 0.7;
             e.dirX = to.x;
             e.dirY = to.y;
           } else {
@@ -697,6 +748,7 @@ export class Game {
           if (e.shootCd <= 0 && dist < 8 && alive) {
             e.state = 'windup';
             e.t = 0.45;
+            e.windupDur = 0.45;
           }
         }
       }
@@ -710,8 +762,12 @@ export class Game {
       e.kbX *= Math.pow(0.0005, dt);
       e.kbY *= Math.pow(0.0005, dt);
       this.moveBody(e, vx * dt, vy * dt, def.radius);
-      if (Math.abs(to.x - to.y) > 0.1 && e.aggro) e.faceLeft = to.x - to.y < 0;
-      else if (Math.abs(vx - vy) > 0.1) e.faceLeft = vx - vy < 0;
+      e.moving = Math.hypot(vx - e.kbX, vy - e.kbY) > 0.2;
+      const faceTo = e.state === 'charge' ? Math.atan2(e.dirY, e.dirX) : e.aggro ? Math.atan2(to.y, to.x) : e.moving ? Math.atan2(vy, vx) : e.faceAngle;
+      let fd = faceTo - e.faceAngle;
+      while (fd > Math.PI) fd -= Math.PI * 2;
+      while (fd < -Math.PI) fd += Math.PI * 2;
+      e.faceAngle += fd * Math.min(1, dt * 8);
 
       // contact damage
       if (alive && e.state !== 'stun' && dist < def.radius + p.r + 0.08 && e.contactCd <= 0) {
@@ -829,10 +885,10 @@ export class Game {
   }
 
   private updateCamera(dt: number) {
-    const s = worldToScreen(this.player.x, this.player.y);
-    const k = Math.min(1, dt * 8);
+    const s = project(this.player.x, this.player.y, this.player.z);
+    const k = Math.min(1, dt * 6);
     this.camX += (s.x - this.camX) * k;
-    this.camY += (s.y - 10 - this.camY) * k;
+    this.camY += (s.y - CAM_LIFT - this.camY) * k;
   }
 
   spark(x: number, y: number, color: string, n = 1, speed = 2) {
@@ -858,12 +914,4 @@ export class Game {
   blocked(x: number, y: number) {
     return isBlocked(this.map, x, y);
   }
-}
-
-export function facingOf(dx: number, dy: number): Facing {
-  // Convert the world direction into a screen direction, then pick the dominant axis.
-  const sx = dx - dy;
-  const sy = (dx + dy) / 2;
-  if (Math.abs(sx) > Math.abs(sy) * 1.4) return sx > 0 ? 'right' : 'left';
-  return sy > 0 ? 'down' : 'up';
 }

@@ -4,6 +4,8 @@ import { STARTING_WEAPON } from './weapons';
 
 export interface SaveData {
   weapons: string[];
+  /** Up to four weapons carried in the quick slots. */
+  loadout: string[];
   relics: string[];
   runs: number;
   deaths: number;
@@ -13,7 +15,7 @@ export interface SaveData {
 const KEY = 'thistlequest.save.v1';
 
 export function freshSave(): SaveData {
-  return { weapons: [STARTING_WEAPON], relics: [], runs: 1, deaths: 0, seenIntro: false };
+  return { weapons: [STARTING_WEAPON], loadout: [STARTING_WEAPON], relics: [], runs: 1, deaths: 0, seenIntro: false };
 }
 
 export function loadSave(): SaveData {
@@ -22,6 +24,8 @@ export function loadSave(): SaveData {
     if (!raw) return freshSave();
     const data = { ...freshSave(), ...JSON.parse(raw) } as SaveData;
     if (!data.weapons.includes(STARTING_WEAPON)) data.weapons.unshift(STARTING_WEAPON);
+    data.loadout = (data.loadout ?? []).filter((w) => data.weapons.includes(w));
+    if (data.loadout.length === 0) data.loadout = data.weapons.slice(0, 4);
     return data;
   } catch {
     return freshSave();
